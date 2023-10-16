@@ -464,7 +464,7 @@ class LLM(BaseModel):
 
         # Return
 
-            :return (bool): whether merge_and_unload should be done.
+        :return (bool): whether merge_and_unload should be done.
         """
         return (
             self.config_obj.adapter is not None
