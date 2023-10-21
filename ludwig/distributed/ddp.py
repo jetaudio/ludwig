@@ -85,9 +85,7 @@ class DDPStrategy(DistributedStrategy):
         if should_step:
             yield
         else:
-            # Prevents DDP from syncing gradients during accumulation step
-            with model.no_sync():
-                yield
+            yield
 
     @contextlib.contextmanager
     def prepare_optimizer_update(self, optimizer: Optimizer):
