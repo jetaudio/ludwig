@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import sys
 from typing import List, Optional, Union
 
 import numpy as np
+import torch
 import torchinfo
 
 from ludwig.api import LudwigModel
@@ -156,8 +157,10 @@ def save_tensors(collected_tensors, output_directory):
     filenames = []
     for tensor_name, tensor_value in collected_tensors:
         np_filename = os.path.join(output_directory, make_safe_filename(tensor_name) + ".npy")
-        np.save(np_filename, tensor_value.detach().cpu().numpy())
-        filenames.append(np_filename)
+        if isinstance(tensor_value, torch.Tensor):
+            # Skip non-tensor collected artifacts, e.g. used_tokens.
+            np.save(np_filename, tensor_value.detach().cpu().numpy())
+            filenames.append(np_filename)
     return filenames
 
 

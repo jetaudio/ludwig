@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ from ludwig.constants import AUDIO, AUDIO_FEATURE_KEYS, COLUMN, NAME, PREPROCESS
 from ludwig.features.base_feature import BaseFeatureMixin
 from ludwig.features.sequence_feature import SequenceInputFeature
 from ludwig.schema.features.audio_feature import AudioInputFeatureConfig
-from ludwig.types import FeatureMetadataDict, PreprocessingConfigDict, TrainingSetMetadataDict
+from ludwig.types import FeatureMetadataDict, ModelConfigDict, PreprocessingConfigDict, TrainingSetMetadataDict
 from ludwig.utils.audio_utils import (
     calculate_mean,
     calculate_var,
@@ -48,6 +48,8 @@ from ludwig.utils.misc_utils import set_default_value
 from ludwig.utils.types import TorchscriptPreprocessingInput
 
 logger = logging.getLogger(__name__)
+
+_TORCH_200 = version.parse(torch.__version__) >= version.parse("2.0.0")
 
 
 class _AudioPreprocessing(torch.nn.Module):
@@ -95,7 +97,11 @@ class AudioFeatureMixin(BaseFeatureMixin):
 
     @staticmethod
     def get_feature_meta(
-        column, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+        config: ModelConfigDict,
+        column,
+        preprocessing_parameters: PreprocessingConfigDict,
+        backend,
+        is_input_feature: bool,
     ) -> FeatureMetadataDict:
         first_audio_file_path = column.head(1).iloc[0]
         _, sampling_rate_in_hz = torchaudio.load(first_audio_file_path)
@@ -147,17 +153,16 @@ class AudioFeatureMixin(BaseFeatureMixin):
         backend,
     ):
         df_engine = backend.df_engine
-        if version.parse(torch.__version__) > version.parse("2.0.0"):
-            # Read audio from path if the version of torch is > 2.0.0.
+        if _TORCH_200:
+            # Read audio from path if the version of torch is >= 2.0.0.
             raw_audio = backend.read_binary_files(column, map_fn=read_audio_from_path)
         else:
             raw_audio = backend.read_binary_files(column, map_fn=read_audio_from_bytes_obj)
 
         try:
             default_audio = get_default_audio([audio for audio in raw_audio if is_torch_audio_tuple(audio)])
-        except RuntimeError:
-            logger.info("Unable to process audio files provided")
-            raise RuntimeError
+        except RuntimeError as e:
+            raise RuntimeError(f"Unable to process audio files provided: {e}") from e
 
         raw_audio = df_engine.map_objects(raw_audio, lambda row: row if is_torch_audio_tuple(row) else default_audio)
         processed_audio = df_engine.map_objects(

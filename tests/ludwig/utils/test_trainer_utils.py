@@ -64,7 +64,7 @@ def test_get_latest_metrics_dict_empty():
 
     latest_metrics_dict = trainer_utils.get_latest_metrics_dict(progress_tracker_metrics)
 
-    assert latest_metrics_dict == {}
+    assert not latest_metrics_dict
 
 
 def test_progress_tracker_empty():
@@ -105,6 +105,7 @@ def test_progress_tracker_empty():
         "best_eval_metric_epoch": 0,
         "checkpoint_number": 0,
         "last_improvement_steps": 0,
+        "total_tokens_used": 0,
     }
 
 
@@ -150,10 +151,16 @@ def test_progress_tracker():
         "tune_checkpoint_num": 0,
         "validation_metrics.combined.loss": 0.2,
         "last_improvement_steps": 0,
+        "total_tokens_used": 0,
     }
 
 
 def test_full_progress_tracker():
+    llm_eval_examples = {
+        "inputs": {"input": [1, 2, 3]},
+        "targets": {"output": [1, 2, 3]},
+        "outputs": {"output": [1, 2, 3]},
+    }
     progress_tracker = trainer_utils.ProgressTracker(
         **{
             BATCH_SIZE: 128,
@@ -253,6 +260,7 @@ def test_full_progress_tracker():
                     ]
                 },
             },
+            "llm_eval_examples": llm_eval_examples,
         }
     )
 
@@ -294,6 +302,12 @@ def test_full_progress_tracker():
         "validation_metrics.Survived.loss": 4.473,
         "validation_metrics.Survived.roc_auc": 0.671,
         "validation_metrics.combined.loss": 4.473,
+        "llm_eval_examples": {
+            "inputs": {"input": [1, 2, 3]},
+            "targets": {"output": [1, 2, 3]},
+            "outputs": {"output": [1, 2, 3]},
+        },
+        "total_tokens_used": 0,
     }
 
 

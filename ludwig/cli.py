@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,6 +49,7 @@ Available sub-commands:
    datasets              Downloads and lists Ludwig-ready datasets
    export_torchscript    Exports Ludwig models to Torchscript
    export_triton         Exports Ludwig models to Triton
+   export_carton         Exports Ludwig models to Carton
    export_neuropod       Exports Ludwig models to Neuropod
    export_mlflow         Exports Ludwig models to MLflow
    preprocess            Preprocess data and saves it into HDF5 and JSON format
@@ -139,6 +140,11 @@ Available sub-commands:
         from ludwig import export
 
         export.cli_export_triton(sys.argv[2:])
+
+    def export_carton(self):
+        from ludwig import export
+
+        export.cli_export_carton(sys.argv[2:])
 
     def export_neuropod(self):
         from ludwig import export

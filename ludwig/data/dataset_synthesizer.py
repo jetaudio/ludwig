@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import pandas as pd
 import torch
 import torchaudio
 import yaml
+from packaging import version
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import (
@@ -61,6 +62,8 @@ from ludwig.utils.misc_utils import get_from_registry
 from ludwig.utils.print_utils import print_ludwig
 
 logger = logging.getLogger(__name__)
+
+_TORCH_AUDIO_210 = version.parse(torchaudio.__version__) >= version.parse("2.1.0")
 
 letters = string.ascii_letters
 
@@ -355,6 +358,8 @@ def generate_audio(feature, outdir: str) -> str:
     audio_dest_path = os.path.join(destination_folder, audio_filename)
 
     try:
+        if _TORCH_AUDIO_210:
+            torchaudio.save(audio_dest_path, audio_tensor, sample_rate=sampling_rate, backend="sox")
         torchaudio.save(audio_dest_path, audio_tensor, sampling_rate)
 
     except OSError as e:

@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2020 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2020 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1050,8 +1050,7 @@ class RayBackend(RemoteTrainingMixin, Backend):
                         fs=fs,
                     ),
                 )
-
-            if map_fn is not None:
+            else:
                 df = df.with_column(column.name, df[column.name].apply(map_fn, return_dtype=daft.DataType.python()))
 
             # Executes and convert Daft Dataframe to Dask DataFrame or Pandas Dataframe

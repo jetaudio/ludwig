@@ -6,19 +6,21 @@ scipy>=0.18
 tabulate>=0.7
 scikit-learn
 tqdm
-torch>=1.13.0
+torch>=2.0.0
 torchaudio
 torchtext
 torchvision
 pydantic<2.0
-transformers>=4.33.2
-tokenizers>=0.13.3
+transformers>=4.36.2
+tifffile
+imagecodecs
+tokenizers>=0.15
 spacy>=2.3
 PyYAML>=3.12,<6.0.1,!=5.4.* #Exlude PyYAML 5.4.* due to incompatibility with awscli
 absl-py
 kaggle
 requests
-fsspec[http]
+fsspec[http]<=2023.10.0
 dataclasses-json
 jsonschema>=4.5.0,<4.7
 marshmallow
@@ -30,7 +32,7 @@ torchmetrics>=0.11.0
 torchinfo
 filelock
 psutil==5.9.4
-protobuf==3.20.3
+protobuf
 py-cpuinfo==9.0.0
 gpustat
 rich~=12.4.4
@@ -42,7 +44,9 @@ sacremoses
 sentencepiece
 
 # requirements for daft
-getdaft
+# NOTE: daft needs to be <0.2 because of deprecation of fsspec argument in Daft
+# Pinned for consistency with ludwig-ray docker image.
+getdaft==0.1.20
 
 # requirement for various paged and 8-bit optimizers
 bitsandbytes<0.41.0
@@ -59,3 +63,6 @@ html5lib            # html
 
 # requirement for loading hugging face datasets
 datasets
+
+# pin required for torch 2.1.0
+urllib3<2

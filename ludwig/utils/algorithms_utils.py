@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,11 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import logging
-
 from ludwig.constants import TIED
-
-logger = logging.getLogger(__name__)
 
 
 def topological_sort(graph_unsorted):
@@ -86,10 +82,3 @@ def topological_sort_feature_dependencies(features):
         dependencies_graph[feature["name"]] = dependencies
         output_features_dict[feature["name"]] = feature
     return [output_features_dict[node[0]] for node in topological_sort(dependencies_graph)]
-
-
-if __name__ == "__main__":
-    graph_unsorted = [(2, []), (5, [11]), (11, [2, 9, 10]), (7, [11, 8]), (9, []), (10, []), (8, [9]), (3, [10, 8])]
-    logger.info(topological_sort(graph_unsorted))
-    graph_unsorted = [("macro", ["action", "contact_type"]), ("contact_type", None), ("action", ["contact_type"])]
-    logger.info(topological_sort(graph_unsorted))

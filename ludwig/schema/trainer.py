@@ -207,6 +207,13 @@ class ECDTrainerConfig(BaseTrainerConfig):
         parameter_metadata=TRAINER_METADATA[MODEL_ECD]["train_steps"],
     )
 
+    eval_steps: float = schema_utils.NonNegativeInteger(
+        default=None,
+        allow_none=True,
+        description="The number of steps to use for evaluation. If None, the entire evaluation set will be used.",
+        parameter_metadata=TRAINER_METADATA[MODEL_ECD]["eval_steps"],
+    )
+
     steps_per_checkpoint: int = schema_utils.NonNegativeInteger(
         default=0,
         description=(
@@ -808,7 +815,7 @@ class LLMTrainerConfig(BaseTrainerConfig):
     """Base class for all LLM trainer configs."""
 
     learning_rate: Union[float, str] = schema_utils.OneOfOptionsField(
-        default=0.0001,
+        default=0.0002,
         allow_none=False,
         description=(
             "Controls how much to change the model in response to the estimated error each time the model weights are "
@@ -823,7 +830,7 @@ class LLMTrainerConfig(BaseTrainerConfig):
     )
 
     batch_size: int = schema_utils.PositiveInteger(
-        default=2,
+        default=1,
         description="Batch size used for training in the LLM trainer.",
     )
 
@@ -838,7 +845,7 @@ class LLMTrainerConfig(BaseTrainerConfig):
     )
 
     epochs: int = schema_utils.PositiveInteger(
-        default=1,
+        default=3,
         description="Number of epochs to train in the LLM trainer.",
     )
 
@@ -846,6 +853,12 @@ class LLMTrainerConfig(BaseTrainerConfig):
         default=None,
         allow_none=True,
         description="Number of training steps to train in the LLM trainer.",
+    )
+
+    eval_steps: float = schema_utils.NonNegativeInteger(
+        default=None,
+        allow_none=True,
+        description="The number of steps to evaluate in the LLM trainer.",
     )
 
     steps_per_checkpoint: int = schema_utils.NonNegativeInteger(
@@ -868,7 +881,7 @@ class LLMTrainerConfig(BaseTrainerConfig):
     )
 
     eval_batch_size: int = schema_utils.PositiveInteger(
-        default=1,
+        default=2,
         description="Batch size used for evaluation in the LLM trainer.",
     )
 

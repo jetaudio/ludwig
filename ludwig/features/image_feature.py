@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from torchvision import transforms
 from torchvision.transforms import functional as F
 from torchvision.transforms.functional import normalize
 
@@ -52,6 +53,7 @@ from ludwig.encoders.image.torchvision import TVModelVariant
 from ludwig.features.base_feature import BaseFeatureMixin, InputFeature
 from ludwig.schema.features.augmentation.base import BaseAugmentationConfig
 from ludwig.schema.features.augmentation.image import (
+    AutoAugmentationConfig,
     RandomBlurConfig,
     RandomBrightnessConfig,
     RandomContrastConfig,
@@ -60,7 +62,7 @@ from ludwig.schema.features.augmentation.image import (
     RandomVerticalFlipConfig,
 )
 from ludwig.schema.features.image_feature import ImageInputFeatureConfig
-from ludwig.types import FeatureMetadataDict, PreprocessingConfigDict, TrainingSetMetadataDict
+from ludwig.types import FeatureMetadataDict, ModelConfigDict, PreprocessingConfigDict, TrainingSetMetadataDict
 from ludwig.utils.augmentation_utils import get_augmentation_op, register_augmentation_op
 from ludwig.utils.data_utils import get_abs_path
 from ludwig.utils.dataframe_utils import is_dask_series_or_df
@@ -90,6 +92,30 @@ logger = logging.getLogger(__name__)
 ###
 # Image specific augmentation operations
 ###
+@register_augmentation_op(name="auto_augmentation", features=IMAGE)
+class AutoAugment(torch.nn.Module):
+    def __init__(self, config: AutoAugmentationConfig):
+        super().__init__()
+        self.auto_augmentation_method = config.method
+        self.augmentation_method = self.get_augmentation_method()
+
+    def get_augmentation_method(self):
+        if self.auto_augmentation_method == "trivial_augment":
+            return transforms.TrivialAugmentWide()
+        if self.auto_augmentation_method == "auto_augment":
+            return transforms.AutoAugment()
+        if self.auto_augmentation_method == "rand_augment":
+            return transforms.RandAugment()
+        raise ValueError(f"Unsupported auto-augmentation method: {self.auto_augmentation_method}")
+
+    def forward(self, imgs: torch.Tensor) -> torch.Tensor:
+        method = self.augmentation_method
+        uint8imgs = imgs.to(torch.uint8)
+        augmented_imgs = method(uint8imgs)
+
+        return augmented_imgs.to(torch.float32)
+
+
 @register_augmentation_op(name="random_vertical_flip", features=IMAGE)
 class RandomVFlip(torch.nn.Module):
     def __init__(
@@ -368,13 +394,17 @@ class ImageFeatureMixin(BaseFeatureMixin):
 
     @staticmethod
     def get_feature_meta(
-        column, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+        config: ModelConfigDict,
+        column,
+        preprocessing_parameters: PreprocessingConfigDict,
+        backend,
+        is_input_feature: bool,
     ) -> FeatureMetadataDict:
         return {PREPROCESSING: preprocessing_parameters}
 
     @staticmethod
     def _read_image_if_bytes_obj_and_resize(
-        img_entry: Union[bytes, torch.Tensor, np.ndarray],
+        img_entry: Union[bytes, torch.Tensor, np.ndarray, str],
         img_width: int,
         img_height: int,
         should_resize: bool,
@@ -384,7 +414,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
         standardize_image: str,
     ) -> Optional[np.ndarray]:
         """
-        :param img_entry Union[bytes, torch.Tensor, np.ndarray]: if str file path to the
+        :param img_entry Union[bytes, torch.Tensor, np.ndarray, str]: if str file path to the
             image else torch.Tensor of the image itself
         :param img_width: expected width of the image
         :param img_height: expected height of the image

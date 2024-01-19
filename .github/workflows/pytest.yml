@@ -26,13 +26,13 @@ jobs:
         test-markers: ["not distributed", "distributed"]
         include:
           - python-version: "3.8"
-            pytorch-version: 1.13.0
+            pytorch-version: 2.0.0
             torchscript-version: 1.10.2
-            ray-version: 2.2.0
+            ray-version: 2.3.1
           - python-version: "3.9"
-            pytorch-version: 2.1.0
+            pytorch-version: 2.1.1
             torchscript-version: 1.10.2
-            ray-version: 2.3.0
+            ray-version: 2.3.1
           - python-version: "3.10"
             pytorch-version: nightly
             torchscript-version: 1.10.2
@@ -126,7 +126,8 @@ jobs:
 
           if [ "$PYTORCH" == "nightly" ]; then
             extra_index_url=https://download.pytorch.org/whl/nightly/cpu
-            pip install --pre torch torchtext torchvision torchaudio --index-url $extra_index_url
+            # This is being tracked as the Issue "https://github.com/ludwig-ai/ludwig/issues/3886" in Ludwig GitHub repository.
+            pip install --pre torch==2.3.0.dev20240111+cpu torchtext torchvision torchaudio --extra-index-url $extra_index_url
 
           else
             extra_index_url=https://download.pytorch.org/whl/cpu
@@ -567,7 +568,7 @@ jobs:
   #         aws-region: ${{ secrets.AWS_REGION }}
 
   #     - name: Stop EC2 runner
-  #       uses: machulav/ec2-github-runner@v2.2.0
+  #       uses: machulav/ec2-github-runner@v2.3.1
   #       with:
   #         mode: stop
   #         github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}

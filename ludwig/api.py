@@ -1,5 +1,5 @@
 # !/usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import traceback
 from collections import OrderedDict
 from pprint import pformat
@@ -95,6 +96,7 @@ from ludwig.utils.dataset_utils import generate_dataset_statistics
 from ludwig.utils.defaults import default_random_seed
 from ludwig.utils.fs_utils import makedirs, path_exists, upload_output_directory
 from ludwig.utils.heuristics import get_auto_learning_rate
+from ludwig.utils.llm_utils import create_text_streamer, TextStreamer
 from ludwig.utils.misc_utils import (
     get_commit_hash,
     get_file_names,
@@ -103,6 +105,7 @@ from ludwig.utils.misc_utils import (
     set_saved_weights_in_checkpoint_flag,
 )
 from ludwig.utils.print_utils import print_boxed
+from ludwig.utils.tokenizers import HFTokenizer
 from ludwig.utils.torch_utils import DEVICE
 from ludwig.utils.trainer_utils import get_training_report
 from ludwig.utils.types import DataFrame, TorchDevice
@@ -327,10 +330,31 @@ class LudwigModel:
 
         # setup model
         self.model = None
-        self.training_set_metadata: Optional[str, dict] = None
+        self.training_set_metadata: Optional[Dict[str, dict]] = None
 
         # online training state
         self._online_trainer = None
+
+        # Zero-shot LLM usage.
+        if (
+            self.config_obj.model_type == MODEL_LLM
+            and self.config_obj.trainer.type == "none"
+            # Category output features require a vocabulary. The LLM LudwigModel should be initialized with
+            # model.train(dataset).
+            and self.config_obj.output_features[0].type == "text"
+        ):
+            self._initialize_llm()
+
+    def _initialize_llm(self, random_seed: int = default_random_seed):
+        """Initialize the LLM model.
+
+        Should only be used in a zero-shot (NoneTrainer) setting.
+        """
+        self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
+
+        if self.model.model.device.type == "cpu" and torch.cuda.is_available():
+            logger.warning(f"LLM was initialized on {self.model.model.device}. Moving to GPU for inference.")
+            self.model.model.to(torch.device("cuda"))
 
     def train(
         self,
@@ -891,6 +915,168 @@ class LudwigModel:
         trainer.eval_batch_size = self.config_obj.trainer.eval_batch_size
         trainer.gradient_accumulation_steps = self.config_obj.trainer.gradient_accumulation_steps
 
+    def save_dequantized_base_model(self, save_path: str) -> None:
+        """Upscales quantized weights of a model to fp16 and saves the result in a specified folder.
+
+        Args:
+            save_path (str): The path to the folder where the upscaled model weights will be saved.
+
+        Raises:
+            ValueError:
+                If the model type is not 'llm' or if quantization is not enabled or the number of bits is not 4 or 8.
+            RuntimeError:
+                If no GPU is available, as GPU is required for quantized models.
+
+        Returns:
+            None
+        """
+        if self.config_obj.model_type != MODEL_LLM:
+            raise ValueError(
+                f"Model type {self.config_obj.model_type} is not supported by this method. Only `llm` model type is "
+                "supported."
+            )
+
+        if not self.config_obj.quantization:
+            raise ValueError(
+                "Quantization is not enabled in your Ludwig model config. "
+                "To enable quantization, set `quantization` to `{'bits': 4}` or `{'bits': 8}` in your model config."
+            )
+
+        if self.config_obj.quantization.bits != 4:
+            raise ValueError(
+                "This method only works with quantized models with 4 bits. "
+                "Support for 8-bit quantized models will be added in a future release."
+            )
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("GPU is required for quantized models but no GPU found.")
+
+        # Create the LLM model class instance with the loaded LLM if it hasn't been initialized yet.
+        if not self.model:
+            self.model = LudwigModel.create_model(self.config_obj)
+
+        self.model.save_dequantized_base_model(save_path)
+
+        logger.info(
+            "If you want to upload this model to huggingface.co, run the following Python commands: \n"
+            "from ludwig.utils.hf_utils import upload_model_to_hfhub; \n"
+            f"upload_folder_to_hfhub(repo_id='desired/huggingface/repo/name', folder_path='{save_path}')"
+        )
+
+    def generate(
+        self,
+        input_strings: Union[str, List[str]],
+        generation_config: Optional[dict] = None,
+        streaming: Optional[bool] = False,
+    ) -> Union[str, List[str]]:
+        """A simple generate() method that directly uses the underlying transformers library to generate text.
+
+        Args:
+            input_strings (Union[str, List[str]]): Input text or list of texts to generate from.
+            generation_config (Optional[dict]): Configuration for text generation.
+            streaming (Optional[bool]): If True, enable streaming output.
+
+        Returns:
+            Union[str, List[str]]: Generated text or list of generated texts.
+        """
+        if self.config_obj.model_type != MODEL_LLM:
+            raise ValueError(
+                f"Model type {self.config_obj.model_type} is not supported by this method. Only `llm` model type is "
+                "supported."
+            )
+        if not torch.cuda.is_available():
+            # GPU is generally well-advised for working with LLMs and is required for loading quantized models, see
+            # https://github.com/ludwig-ai/ludwig/issues/3695.
+            raise ValueError("GPU is not available.")
+
+        # TODO(Justin): Decide if it's worth folding padding_side handling into llm.py's tokenizer initialization.
+        # For batch inference with models like facebook/opt-350m, if the tokenizer padding side is off, HF prints a
+        # warning, e.g.:
+        # "A decoder-only architecture is being used, but right-padding was detected! For correct generation results, "
+        # "please set `padding_side='left'` when initializing the tokenizer.
+        padding_side = "left" if not self.model.model.config.is_encoder_decoder else "right"
+        tokenizer = HFTokenizer(self.config_obj.base_model, padding_side=padding_side)
+
+        with self.model.use_generation_config(generation_config):
+            start_time = time.time()
+            tokenized_inputs = tokenizer.tokenizer(input_strings, return_tensors="pt", padding=True)
+            input_ids = tokenized_inputs["input_ids"].to("cuda")
+            attention_mask = tokenized_inputs["attention_mask"].to("cuda")
+
+            if streaming:
+                streamer = create_text_streamer(tokenizer.tokenizer)
+                outputs = self._generate_streaming_outputs(input_strings, input_ids, attention_mask, streamer)
+            else:
+                outputs = self._generate_non_streaming_outputs(input_strings, input_ids, attention_mask)
+
+            decoded_outputs = tokenizer.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            logger.info(f"Finished generating in: {(time.time() - start_time):.2f}s.")
+
+            return decoded_outputs[0] if len(decoded_outputs) == 1 else decoded_outputs
+
+    def _generate_streaming_outputs(
+        self,
+        input_strings: Union[str, List[str]],
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        streamer: TextStreamer,
+    ) -> torch.Tensor:
+        """Generate streaming outputs for the given input.
+
+        Args:
+            input_strings (Union[str, List[str]]): Input text or list of texts to generate from.
+            input_ids (torch.Tensor): Tensor containing input IDs.
+            attention_mask (torch.Tensor): Tensor containing attention masks.
+            streamer (Union[TextStreamer, None]): Text streamer instance for streaming output.
+
+        Returns:
+            torch.Tensor: Concatenated tensor of generated outputs.
+        """
+        outputs = []
+        input_strings = input_strings if isinstance(input_strings, list) else [input_strings]
+        for i in range(len(input_ids)):
+            with torch.no_grad():
+                logger.info(f"Input: {input_strings[i]}\n")
+                # NOTE: self.model.model.generation_config is not used here because it is the default
+                # generation config that the CausalLM was initialized with, rather than the one set within the
+                # context manager.
+                generated_output = self.model.model.generate(
+                    input_ids=input_ids[i].unsqueeze(0),
+                    attention_mask=attention_mask[i].unsqueeze(0),
+                    generation_config=self.model.generation,
+                    streamer=streamer,
+                )
+                logger.info("----------------------")
+                outputs.append(generated_output)
+        return torch.cat(outputs, dim=0)
+
+    def _generate_non_streaming_outputs(
+        self,
+        _input_strings: Union[str, List[str]],
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Generate non-streaming outputs for the given input.
+
+        Args:
+            _input_strings (Union[str, List[str]]): Unused input parameter.
+            input_ids (torch.Tensor): Tensor containing input IDs.
+            attention_mask (torch.Tensor): Tensor containing attention masks.
+            streamer (Union[TextStreamer, None]): Text streamer instance for streaming output.
+
+        Returns:
+            torch.Tensor: Tensor of generated outputs.
+        """
+        with torch.no_grad():
+            # NOTE: self.model.model.generation_config is not used here because it is the default
+            # generation config that the CausalLM was initialized with, rather than the one set within the
+            # context manager.
+            return self.model.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                generation_config=self.model.generation,
+            )
+
     def predict(
         self,
         dataset: Optional[Union[str, dict, pd.DataFrame]] = None,
@@ -946,6 +1132,7 @@ class LudwigModel:
         self._check_initialization()
 
         # preprocessing
+        start_time = time.time()
         logger.debug("Preprocessing")
         dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
             self.config_obj.to_dict(),
@@ -992,6 +1179,7 @@ class LudwigModel:
 
                     logger.info(f"Saved to: {output_directory}")
 
+            logger.info(f"Finished predicting in: {(time.time() - start_time):.2f}s.")
             return converted_postproc_predictions, output_directory
 
     def evaluate(

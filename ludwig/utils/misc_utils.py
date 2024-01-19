@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2019 Uber Technologies, Inc.
+# Copyright (c) 2023 Predibase, Inc., 2019 Uber Technologies, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import subprocess
 import weakref
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 import numpy
 import torch
@@ -212,3 +212,11 @@ def get_commit_hash():
     except:  # noqa: E722
         pass
     return None
+
+
+@DeveloperAPI
+def scrub_creds(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Returns a copy of a config dict with all sensitive fields scrubbed."""
+    if config_dict.get("backend", {}) and "credentials" in config_dict.get("backend", {}):
+        config_dict["backend"]["credentials"] = {}
+    return config_dict
